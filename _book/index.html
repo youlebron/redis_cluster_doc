@@ -1,0 +1,316 @@
+<!DOCTYPE HTML>
+<html lang="en" >
+    
+    <head>
+        
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <title>Introduction | Redis Cluster Specification</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Welcome to the Redis Cluster Specification. Here you&#39;ll find information about algorithms and design rationales of Redis Cluster. This document is a work in progress as it is continuously synchronized with the actual implementation of Redis.">
+        <meta name="generator" content="GitBook 2.6.7">
+        
+        
+        <meta name="HandheldFriendly" content="true"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black">
+        <link rel="apple-touch-icon-precomposed" sizes="152x152" href="gitbook/images/apple-touch-icon-precomposed-152.png">
+        <link rel="shortcut icon" href="gitbook/images/favicon.ico" type="image/x-icon">
+        
+    <link rel="stylesheet" href="gitbook/style.css">
+    
+        
+        <link rel="stylesheet" href="gitbook/plugins/gitbook-plugin-highlight/website.css">
+        
+    
+        
+        <link rel="stylesheet" href="gitbook/plugins/gitbook-plugin-search/search.css">
+        
+    
+        
+        <link rel="stylesheet" href="gitbook/plugins/gitbook-plugin-fontsettings/website.css">
+        
+    
+    
+
+        
+    
+    
+    
+
+        
+    </head>
+    <body>
+        
+        
+    <div class="book"
+        data-level="0"
+        data-chapter-title="Introduction"
+        data-filepath="README.md"
+        data-basepath="."
+        data-revision="Tue May 10 2016 22:00:07 GMT+0800 (CST)"
+        data-innerlanguage="">
+    
+
+<div class="book-summary">
+    <nav role="navigation">
+        <ul class="summary">
+            
+            
+            
+            
+
+            
+
+            
+    
+        <li class="chapter active" data-level="0" data-path="index.html">
+            
+                
+                    <a href="./index.html">
+                
+                        <i class="fa fa-check"></i>
+                        
+                        Introduction
+                    </a>
+            
+            
+        </li>
+    
+
+
+            
+            <li class="divider"></li>
+            <li>
+                <a href="https://www.gitbook.com" target="blank" class="gitbook-link">
+                    Published with GitBook
+                </a>
+            </li>
+            
+        </ul>
+    </nav>
+</div>
+
+    <div class="book-body">
+        <div class="body-inner">
+            <div class="book-header" role="navigation">
+    <!-- Actions Left -->
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href="./" >Redis Cluster Specification</a>
+    </h1>
+</div>
+
+            <div class="page-wrapper" tabindex="-1" role="main">
+                <div class="page-inner">
+                
+                
+                    <section class="normal" id="section-">
+                    
+                        <h1 id="redis-cluster-specification">Redis Cluster Specification</h1>
+<p>Welcome to the <strong>Redis Cluster Specification</strong>. Here you&apos;ll find information about algorithms and design rationales of Redis Cluster. This document is a work in progress as it is continuously synchronized with the actual implementation of Redis.</p>
+<h1 id="main-properties-and-rationales-of-the-design">Main properties and rationales of the design</h1>
+<h2 id="redis-cluster-goals">Redis Cluster goals</h2>
+<p>Redis Cluster is a distributed implementation of Redis with the following goals, in order of importance in the design:</p>
+<ul>
+<li>High performance and linear scalability up to 1000 nodes. There are no proxies, asynchronous replication is used, and no merge operations are performed on values.</li>
+<li>Acceptable degree of write safety: the system tries (in a best-effort way) to retain all the writes originating from clients connected with the majority of the master nodes. Usually there are small windows where acknowledged writes can be lost. Windows to lose acknowledged writes are larger when clients are in a minority partition.</li>
+<li>Availability: Redis Cluster is able to survive partitions where the majority of the master nodes are reachable and there is at least one reachable slave for every master node that is no longer reachable. Moreover using <em>replicas migration</em>, masters no longer replicated by any slave will receive one from a master which is covered by multiple slaves.</li>
+</ul>
+<p>What is described in this document is implemented in Redis 3.0 or greater.</p>
+<h2 id="implemented-subset">Implemented subset</h2>
+<p>Redis Cluster implements all the single key commands available in the non-distributed version of Redis. Commands performing complex multi-key operations like Set type unions or intersections are implemented as well as long as the keys all belong to the same node.</p>
+<p>Redis Cluster implements a concept called <strong>hash tags</strong> that can be used in order to force certain keys to be stored in the same node. However during manual reshardings, multi-key operations may become unavailable for some time while single key operations are always available.</p>
+<p>Redis Cluster does not support multiple databases like the stand alone version of Redis. There is just database 0 and the <a href="http://redis.io/commands/select" target="_blank">SELECT</a> command is not allowed.</p>
+<h2 id="clients-and-servers-roles-in-the-redis-cluster-protocol">Clients and Servers roles in the Redis Cluster protocol</h2>
+<p>In Redis Cluster nodes are responsible for holding the data, and taking the state of the cluster, including mapping keys to the right nodes. Cluster nodes are also able to auto-discover other nodes, detect non-working nodes, and promote slave nodes to master when needed in order to continue to operate when a failure occurs.</p>
+<p>To perform their tasks all the cluster nodes are connected using a TCP bus and a binary protocol, called the <strong>Redis Cluster Bus</strong>. Every node is connected to every other node in the cluster using the cluster bus. Nodes use a gossip protocol to propagate information about the cluster in order to discover new nodes, to send ping packets to make sure all the other nodes are working properly, and to send cluster messages needed to signal specific conditions. The cluster bus is also used in order to propagate Pub/Sub messages across the cluster and to orchestrate manual failovers when requested by users (manual failovers are failovers which are not initiated by the Redis Cluster failure detector, but by the system administrator directly).</p>
+<p>Since cluster nodes are not able to proxy requests, clients may be redirected to other nodes using redirection errors <code>-MOVED</code> and <code>-ASK</code>. The client is in theory free to send requests to all the nodes in the cluster, getting redirected if needed, so the client is not required to hold the state of the cluster. However clients that are able to cache the map between keys and nodes can improve the performance in a sensible way.</p>
+<h2 id="write-safety">Write safety</h2>
+<p>Redis Cluster uses asynchronous replication between nodes, and <strong>last failover wins</strong> implicit merge function. This means that the last elected master dataset eventually replaces all the other replicas. There is always a window of time when it is possible to lose writes during partitions. However these windows are very different in the case of a client that is connected to the majority of masters, and a client that is connected to the minority of masters.</p>
+<p>Redis Cluster tries harder to retain writes that are performed by clients connected to the majority of masters, compared to writes performed in the minority side. The following are examples of scenarios that lead to loss of acknowledged writes received in the majority partitions during failures:</p>
+<ol>
+<li>A write may reach a master, but while the master may be able to reply to the client, the write may not be propagated to slaves via the asynchronous replication used between master and slave nodes. If the master dies without the write reaching the slaves, the write is lost forever if the master is unreachable for a long enough period that one of its slaves is promoted. This is usually hard to observe in the case of a total, sudden failure of a master node since masters try to reply to clients (with the acknowledge of the write) and slaves (propagating the write) at about the same time. However it is a real world failure mode.</li>
+<li><p>Another theoretically possible failure mode where writes are lost is the following:</p>
+</li>
+<li><p>A master is unreachable because of a partition.</p>
+</li>
+<li>It gets failed over by one of its slaves.</li>
+<li>After some time it may be reachable again.</li>
+<li>A client with an out-of-date routing table may write to the old master before it is converted into a slave (of the new master) by the cluster.</li>
+</ol>
+<p>The second failure mode is unlikely to happen because master nodes unable to communicate with the majority of the other masters for enough time to be failed over will no longer accept writes, and when the partition is fixed writes are still refused for a small amount of time to allow other nodes to inform about configuration changes. This failure mode also requires that the client&apos;s routing table has not yet been updated.</p>
+<p>Writes targeting the minority side of a partition have a larger window in which to get lost. For example, Redis Cluster loses a non-trivial number of writes on partitions where there is a minority of masters and at least one or more clients, since all the writes sent to the masters may potentially get lost if the masters are failed over in the majority side.</p>
+<p>Specifically, for a master to be failed over it must be unreachable by the majority of masters for at least<code>NODE_TIMEOUT</code>, so if the partition is fixed before that time, no writes are lost. When the partition lasts for more than<code>NODE_TIMEOUT</code>, all the writes performed in the minority side up to that point may be lost. However the minority side of a Redis Cluster will start refusing writes as soon as <code>NODE_TIMEOUT</code> time has elapsed without contact with the majority, so there is a maximum window after which the minority becomes no longer available. Hence, no writes are accepted or lost after that time.</p>
+<h2 id="availability">Availability</h2>
+<p>Redis Cluster is not available in the minority side of the partition. In the majority side of the partition assuming that there are at least the majority of masters and a slave for every unreachable master, the cluster becomes available again after <code>NODE_TIMEOUT</code> time plus a few more seconds required for a slave to get elected and failover its master (failovers are usually executed in a matter of 1 or 2 seconds).</p>
+<p>This means that Redis Cluster is designed to survive failures of a few nodes in the cluster, but it is not a suitable solution for applications that require availability in the event of large net splits.</p>
+<p>In the example of a cluster composed of N master nodes where every node has a single slave, the majority side of the cluster will remain available as long as a single node is partitioned away, and will remain available with a probability of<code>1-(1/(N*2-1))</code> when two nodes are partitioned away (after the first node fails we are left with <code>N*2-1</code> nodes in total, and the probability of the only master without a replica to fail is <code>1/(N*2-1))</code>.</p>
+<p>For example, in a cluster with 5 nodes and a single slave per node, there is a <code>1/(5*2-1) = 11.11%</code> probability that after two nodes are partitioned away from the majority, the cluster will no longer be available.</p>
+<p>Thanks to a Redis Cluster feature called <strong>replicas migration</strong> the Cluster availability is improved in many real world scenarios by the fact that replicas migrate to orphaned masters (masters no longer having replicas). So at every successful failure event, the cluster may reconfigure the slaves layout in order to better resist the next failure.</p>
+<h2 id="performance">Performance</h2>
+<p>In Redis Cluster nodes don&apos;t proxy commands to the right node in charge for a given key, but instead they redirect clients to the right nodes serving a given portion of the key space.</p>
+<p>Eventually clients obtain an up-to-date representation of the cluster and which node serves which subset of keys, so during normal operations clients directly contact the right nodes in order to send a given command.</p>
+<p>Because of the use of asynchronous replication, nodes do not wait for other nodes&apos; acknowledgment of writes (if not explicitly requested using the <a href="http://redis.io/commands/wait" target="_blank">WAIT</a> command).</p>
+<p>Also, because multi-key commands are only limited to <em>near</em> keys, data is never moved between nodes except when resharding.</p>
+<p>Normal operations are handled exactly as in the case of a single Redis instance. This means that in a Redis Cluster with N master nodes you can expect the same performance as a single Redis instance multiplied by N as the design scales linearly. At the same time the query is usually performed in a single round trip, since clients usually retain persistent connections with the nodes, so latency figures are also the same as the single standalone Redis node case.</p>
+<p>Very high performance and scalability while preserving weak but reasonable forms of data safety and availability is the main goal of Redis Cluster.</p>
+<h2 id="why-merge-operations-are-avoided">Why merge operations are avoided</h2>
+<p>Redis Cluster design avoids conflicting versions of the same key-value pair in multiple nodes as in the case of the Redis data model this is not always desirable. Values in Redis are often very large; it is common to see lists or sorted sets with millions of elements. Also data types are semantically complex. Transferring and merging these kind of values can be a major bottleneck and/or may require the non-trivial involvement of application-side logic, additional memory to store meta-data, and so forth.</p>
+<p>There are no strict technological limits here. CRDTs or synchronously replicated state machines can model complex data types similar to Redis. However, the actual run time behavior of such systems would not be similar to Redis Cluster. Redis Cluster was designed in order to cover the exact use cases of the non-clustered Redis version.</p>
+<h1 id="overview-of-redis-cluster-main-components">Overview of Redis Cluster main components</h1>
+<h2 id="keys-distribution-model">Keys distribution model</h2>
+<p>The key space is split into 16384 slots, effectively setting an upper limit for the cluster size of 16384 master nodes (however the suggested max size of nodes is in the order of ~ 1000 nodes).</p>
+<p>Each master node in a cluster handles a subset of the 16384 hash slots. The cluster is <strong>stable</strong> when there is no cluster reconfiguration in progress (i.e. where hash slots are being moved from one node to another). When the cluster is stable, a single hash slot will be served by a single node (however the serving node can have one or more slaves that will replace it in the case of net splits or failures, and that can be used in order to scale read operations where reading stale data is acceptable).</p>
+<p>The base algorithm used to map keys to hash slots is the following (read the next paragraph for the hash tag exception to this rule):</p>
+<pre><code>HASH_SLOT = CRC16(key) mod 16384
+</code></pre><p>The CRC16 is specified as follows:</p>
+<ul>
+<li>Name: XMODEM (also known as ZMODEM or CRC-16/ACORN)</li>
+<li>Width: 16 bit</li>
+<li>Poly: 1021 (That is actually x16 + x12 + x5 + 1)</li>
+<li>Initialization: 0000</li>
+<li>Reflect Input byte: False</li>
+<li>Reflect Output CRC: False</li>
+<li>Xor constant to output CRC: 0000</li>
+<li>Output for &quot;123456789&quot;: 31C3</li>
+</ul>
+<p>14 out of 16 CRC16 output bits are used (this is why there is a modulo 16384 operation in the formula above).</p>
+<p>In our tests CRC16 behaved remarkably well in distributing different kinds of keys evenly across the 16384 slots.</p>
+<p><strong>Note</strong>: A reference implementation of the CRC16 algorithm used is available in the Appendix A of this document.</p>
+<h2 id="keys-hash-tags">Keys hash tags</h2>
+<p>There is an exception for the computation of the hash slot that is used in order to implement <strong>hash tags</strong>. Hash tags are a way to ensure that multiple keys are allocated in the same hash slot. This is used in order to implement multi-key operations in Redis Cluster.</p>
+<p>In order to implement hash tags, the hash slot for a key is computed in a slightly different way in certain conditions. If the key contains a &quot;{...}&quot; pattern only the substring between <code>{</code> and <code>}</code> is hashed in order to obtain the hash slot. However since it is possible that there are multiple occurrences of <code>{</code> or <code>}</code> the algorithm is well specified by the following rules:</p>
+<ul>
+<li>IF the key contains a <code>{</code> character.</li>
+<li>AND IF there is a <code>}</code> character to the right of <code>{</code></li>
+<li>AND IF there are one or more characters between the first occurrence of <code>{</code> and the first occurrence of <code>}</code>.</li>
+</ul>
+<p>Then instead of hashing the key, only what is between the first occurrence of <code>{</code> and the following first occurrence of <code>}</code>is hashed.</p>
+<p>Examples:</p>
+<ul>
+<li>The two keys <code>{user1000}.following</code> and <code>{user1000}.followers</code> will hash to the same hash slot since only the substring <code>user1000</code> will be hashed in order to compute the hash slot.</li>
+<li>For the key <code>foo{}{bar}</code> the whole key will be hashed as usually since the first occurrence of <code>{</code> is followed by <code>}</code> on the right without characters in the middle.</li>
+<li>For the key <code>foozap</code> the substring <code>{bar</code> will be hashed, because it is the substring between the first occurrence of <code>{</code> and the first occurrence of <code>}</code> on its right.</li>
+<li>For the key <code>foo{bar}{zap}</code> the substring <code>bar</code> will be hashed, since the algorithm stops at the first valid or invalid (without bytes inside) match of <code>{</code> and <code>}</code>.</li>
+<li>What follows from the algorithm is that if the key starts with <code>{}</code>, it is guaranteed to be hashed as a whole. This is useful when using binary data as key names.</li>
+</ul>
+<p>Adding the hash tags exception, the following is an implementation of the <code>HASH_SLOT</code> function in Ruby and C language.</p>
+<p>Ruby example code:</p>
+<pre><code>def HASH_SLOT(key)
+    s = key.index &quot;{&quot;
+    if s
+        e = key.index &quot;}&quot;,s+1
+        if e &amp;&amp; e != s+1
+            key = key[s+1..e-1]
+        end
+    end
+    crc16(key) % 16384
+end
+</code></pre><p>C example code:</p>
+<pre><code>unsigned int HASH_SLOT(char *key, int keylen) {
+    int s, e; /* start-end indexes of { and } */
+
+    /* Search the first occurrence of &apos;{&apos;. */
+    for (s = 0; s &lt; keylen; s++)
+        if (key[s] == &apos;{&apos;) break;
+
+    /* No &apos;{&apos; ? Hash the whole key. This is the base case. */
+    if (s == keylen) return crc16(key,keylen) &amp; 16383;
+
+    /* &apos;{&apos; found? Check if we have the corresponding &apos;}&apos;. */
+    for (e = s+1; e &lt; keylen; e++)
+        if (key[e] == &apos;}&apos;) break;
+
+    /* No &apos;}&apos; or nothing between {} ? Hash the whole key. */
+    if (e == keylen || e == s+1) return crc16(key,keylen) &amp; 16383;
+
+    /* If we are here there is both a { and a } on its right. Hash
+     * what is in the middle between { and }. */
+    return crc16(key+s+1,e-s-1) &amp; 16383;
+}
+</code></pre><h2 id="cluster-nodes-attributes">Cluster nodes attributes</h2>
+<p>Every node has a unique name in the cluster. The node name is the hex representation of a 160 bit random number, obtained the first time a node is started (usually using /dev/urandom). The node will save its ID in the node configuration file, and will use the same ID forever, or at least as long as the node configuration file is not deleted by the system administrator, or a <em>hard reset</em> is requested via the <a href="http://redis.io/commands/cluster-reset" target="_blank">CLUSTER RESET</a> command.</p>
+<p>The node ID is used to identify every node across the whole cluster. It is possible for a given node to change its IP address without any need to also change the node ID. The cluster is also able to detect the change in IP/port and reconfigure using the gossip protocol running over the cluster bus.</p>
+<p>The node ID is not the only information associated with each node, but is the only one that is always globally consistent. Every node has also the following set of information associated. Some information is about the cluster configuration detail of this specific node, and is eventually consistent across the cluster. Some other information, like the last time a node was pinged, is instead local to each node.</p>
+<p>Every node maintains the following information about other nodes that it is aware of in the cluster: The node ID, IP and port of the node, a set of flags, what is the master of the node if it is flagged as <code>slave</code>, last time the node was pinged and the last time the pong was received, the current <em>configuration epoch</em> of the node (explained later in this specification), the link state and finally the set of hash slots served.</p>
+<p>A detailed <a href="http://redis.io/commands/cluster-nodes" target="_blank">explanation of all the node fields</a> is described in the <a href="http://redis.io/commands/cluster-nodes" target="_blank">CLUSTER NODES</a> documentation.</p>
+<p>The <a href="http://redis.io/commands/cluster-nodes" target="_blank">CLUSTER NODES</a> command can be sent to any node in the cluster and provides the state of the cluster and the information for each node according to the local view the queried node has of the cluster.</p>
+<p>The following is sample output of the <a href="http://redis.io/commands/cluster-nodes" target="_blank">CLUSTER NODES</a> command sent to a master node in a small cluster of three nodes.</p>
+<pre><code>$ redis-cli cluster nodes
+d1861060fe6a534d42d8a19aeb36600e18785e04 127.0.0.1:6379 myself - 0 1318428930 1 connected 0-1364
+3886e65cc906bfd9b1f7e7bde468726a052d1dae 127.0.0.1:6380 master - 1318428930 1318428931 2 connected 1365-2729
+d289c575dcbc4bdd2931585fd4339089e461a27d 127.0.0.1:6381 master - 1318428931 1318428931 3 connected 2730-4095
+</code></pre><p>In the above listing the different fields are in order: node id, address:port, flags, last ping sent, last pong received, configuration epoch, link state, slots. Details about the above fields will be covered as soon as we talk of specific parts of Redis Cluster.</p>
+<h2 id="the-cluster-bus">The Cluster bus</h2>
+<p>Every Redis Cluster node has an additional TCP port for receiving incoming connections from other Redis Cluster nodes. This port is at a fixed offset from the normal TCP port used to receive incoming connections from clients. To obtain the Redis Cluster port, 10000 should be added to the normal commands port. For example, if a Redis node is listening for client connections on port 6379, the Cluster bus port 16379 will also be opened.</p>
+<p>Node-to-node communication happens exclusively using the Cluster bus and the Cluster bus protocol: a binary protocol composed of frames of different types and sizes. The Cluster bus binary protocol is not publicly documented since it is not intended for external software devices to talk with Redis Cluster nodes using this protocol. However you can obtain more details about the Cluster bus protocol by reading the <code>cluster.h</code> and <code>cluster.c</code> files in the Redis Cluster source code.</p>
+<h2 id="cluster-topology">Cluster topology</h2>
+<p>Redis Cluster is a full mesh where every node is connected with every other node using a TCP connection.</p>
+<p>In a cluster of N nodes, every node has N-1 outgoing TCP connections, and N-1 incoming connections.</p>
+<p>These TCP connections are kept alive all the time and are not created on demand. When a node expects a pong reply in response to a ping in the cluster bus, before waiting long enough to mark the node as unreachable, it will try to refresh the connection with the node by reconnecting from scratch.</p>
+<p>While Redis Cluster nodes form a full mesh, <strong>nodes use a gossip protocol and a configuration update mechanism in order to avoid exchanging too many messages between nodes during normal conditions</strong>, so the number of messages exchanged is not exponential.</p>
+<h2 id="nodes-handshake">Nodes handshake</h2>
+<p>Nodes always accept connections on the cluster bus port, and even reply to pings when received, even if the pinging node is not trusted. However, all other packets will be discarded by the receiving node if the sending node is not considered part of the cluster.</p>
+<p>A node will accept another node as part of the cluster only in two ways:</p>
+<ul>
+<li><p>If a node presents itself with a <code>MEET</code> message. A meet message is exactly like a <a href="http://redis.io/commands/ping" target="_blank">PING</a> message, but forces the receiver to accept the node as part of the cluster. Nodes will send <code>MEET</code> messages to other nodes <strong>only if</strong> the system administrator requests this via the following command:</p>
+<p>CLUSTER MEET ip port</p>
+</li>
+<li><p>A node will also register another node as part of the cluster if a node that is already trusted will gossip about this other node. So if A knows B, and B knows C, eventually B will send gossip messages to A about C. When this happens, A will register C as part of the network, and will try to connect with C.</p>
+</li>
+</ul>
+<p>This means that as long as we join nodes in any connected graph, they&apos;ll eventually form a fully connected graph automatically. This means that the cluster is able to auto-discover other nodes, but only if there is a trusted relationship that was forced by the system administrator.</p>
+<p>This mechanism makes the cluster more robust but prevents different Redis clusters from accidentally mixing after change of IP addresses or other network related events.</p>
+
+                    
+                    </section>
+                
+                
+                </div>
+            </div>
+        </div>
+
+        
+        
+    </div>
+</div>
+
+        
+<script src="gitbook/app.js"></script>
+
+    
+    <script src="gitbook/plugins/gitbook-plugin-search/lunr.min.js"></script>
+    
+
+    
+    <script src="gitbook/plugins/gitbook-plugin-search/search.js"></script>
+    
+
+    
+    <script src="gitbook/plugins/gitbook-plugin-sharing/buttons.js"></script>
+    
+
+    
+    <script src="gitbook/plugins/gitbook-plugin-fontsettings/buttons.js"></script>
+    
+
+    
+    <script src="gitbook/plugins/gitbook-plugin-livereload/plugin.js"></script>
+    
+
+<script>
+require(["gitbook"], function(gitbook) {
+    var config = {"highlight":{},"search":{"maxIndexSize":1000000},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"livereload":{}};
+    gitbook.start(config);
+});
+</script>
+
+        
+    </body>
+    
+</html>
